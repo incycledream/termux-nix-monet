@@ -4,11 +4,14 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.os.Build;
 import android.os.Environment;
 import android.system.Os;
 import android.util.Pair;
 import android.view.WindowManager;
+import android.widget.EditText;
+
 import com.termux.R;
 import com.termux.shared.file.FileUtils;
 import com.termux.shared.shell.command.ExecutionCommand;
@@ -61,6 +64,7 @@ import static com.termux.shared.termux.TermuxConstants.TERMUX_STAGING_PREFIX_DIR
 final class TermuxInstaller {
 
     private static final String LOG_TAG = "TermuxInstaller";
+    static String defaultBootstrapURL = "https://nix-on-droid.unboiled.info/bootstrap";
 
     /**
      * Performs bootstrap setup if necessary.
@@ -103,7 +107,31 @@ final class TermuxInstaller {
             }
         } else if (FileUtils.fileExists(TERMUX_PREFIX_DIR_PATH, false)) {
             Logger.logInfo(LOG_TAG, "The termux prefix directory \"" + TERMUX_PREFIX_DIR_PATH + "\" does not exist but another file exists at its destination.");
+
         }
+        final EditText taskEditText = new EditText(activity);
+        String archName = determineTermuxArchName();
+        taskEditText.setHint(defaultBootstrapURL);
+        taskEditText.setText(defaultBootstrapURL);
+
+        AlertDialog dialog = new AlertDialog.Builder(activity)
+            .setTitle("Bootstrap zipball location")
+            .setMessage("Enter the URL of a directory containing bootstrap-" + archName + ".zip")
+            .setView(taskEditText)
+            .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface dialog, int which) {
+                    String bootstrapURL = String.valueOf(taskEditText.getText());
+                    restOfSetupIfNeeded(activity, whenDone, bootstrapURL);
+                }
+            })
+            .create();
+
+        dialog.show();
+    }
+
+    static void restOfSetupIfNeeded(final Activity activity, final Runnable whenDone, String bootstrapURL) {
+
         final ProgressDialog progress = ProgressDialog.show(activity, null, activity.getString(R.string.bootstrap_installer_body), true, false);
         new Thread() {
 
@@ -139,7 +167,8 @@ final class TermuxInstaller {
                     Logger.logInfo(LOG_TAG, "Extracting bootstrap zip to prefix staging directory \"" + TERMUX_STAGING_PREFIX_DIR_PATH + "\".");
                     final byte[] buffer = new byte[8096];
                     final List<Pair<String, String>> symlinks = new ArrayList<>(50);
-                    final URL zipUrl = determineZipUrl();
+
+                    final URL zipUrl = determineZipUrl(bootstrapURL);
                     try (ZipInputStream zipInput = new ZipInputStream(zipUrl.openStream())) {
                         ZipEntry zipEntry;
                         while ((zipEntry = zipInput.getNextEntry()) != null) {
@@ -344,10 +373,10 @@ final class TermuxInstaller {
         return FileUtils.createDirectoryFile(directory.getAbsolutePath());
     }
 
-    private static URL determineZipUrl() throws MalformedURLException {
+    /** Get bootstrap zip url for this systems cpu architecture. */
+    private static URL determineZipUrl(String bootstrapURL) throws MalformedURLException {
         String archName = determineTermuxArchName();
-        String url = "https://github.com/termux/termux-packages/releases/latest/download/bootstrap-" + archName + ".zip";
-        return new URL(url);
+        return new URL(bootstrapURL + "/bootstrap-" + archName + ".zip");
     }
 
     private static String determineTermuxArchName() {
@@ -359,17 +388,16 @@ final class TermuxInstaller {
         // Build.SUPPORTED_ABIS list) to avoid e.g. installing arm on an x86 system where arm
         // emulation is available.
         for (String androidArch : Build.SUPPORTED_ABIS) {
-            switch(androidArch) {
-                case "arm64-v8a":
-                    return "aarch64";
-                case "armeabi-v7a":
-                    return "arm";
-                case "x86_64":
-                    return "x86_64";
-                case "x86":
-                    return "i686";
+            switch (androidArch) {
+                case "arm64-v8a": return "aarch64";
+                case "armeabi-v7a": return "arm";
+                case "x86_64": return "x86_64";
+                case "x86": return "i686";
             }
         }
-        throw new RuntimeException("Unable to determine arch from Build.SUPPORTED_ABIS =  " + Arrays.toString(Build.SUPPORTED_ABIS));
+        throw new RuntimeException("Unable to determine arch from Build.SUPPORTED_ABIS =  " +
+            Arrays.toString(Build.SUPPORTED_ABIS));
     }
+
+
 }
